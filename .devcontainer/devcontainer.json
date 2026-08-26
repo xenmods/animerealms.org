@@ -1,0 +1,11 @@
+{
+  "customizations": {
+    "codespaces": {
+      "repositories": {
+        "animerealms/translations": {
+          "permissions": "write-all"
+        }
+      }
+    }
+  }
+}
