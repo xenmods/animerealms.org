@@ -1,11 +1,21 @@
 export const providerNames = [
+  "local-download",
   "anidb",
   "anidb-dub",
   "megaplay",
   "megaplay-dub",
 ];
 
-export const providersConfig = {
+export const providersConfig: Record<
+  string,
+  { name: string; short: string; proxyRequired: boolean; isLocal?: boolean; isCustom?: boolean; ref?: string }
+> = {
+  "local-download": {
+    name: "Local Downloads",
+    short: "local",
+    proxyRequired: false,
+    isLocal: true,
+  },
   anidb: {
     name: "AniDB",
     short: "anidb",
@@ -27,3 +37,4 @@ export const providersConfig = {
     proxyRequired: true,
   },
 };
+

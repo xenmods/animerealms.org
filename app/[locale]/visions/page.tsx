@@ -1,5 +1,6 @@
 import { ReelFeed } from "@/components/reels/ReelFeed";
 import { Metadata } from "next";
+import { OfflineGuard } from "@/components/desktop/offline-guard";
 
 export const metadata: Metadata = {
   title: "Visions",
@@ -7,5 +8,10 @@ export const metadata: Metadata = {
 };
 
 export default function VisionsPage() {
-  return <ReelFeed />;
+  return (
+    <OfflineGuard pageTitle="Visions">
+      <ReelFeed />
+    </OfflineGuard>
+  );
 }
+

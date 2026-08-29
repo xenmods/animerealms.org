@@ -2,21 +2,31 @@ import NextAuth from "next-auth";
 import clientPromise from "@/lib/db";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
   providers: [
+
     {
       id: "anilist",
       name: "AniList",
       type: "oauth",
+      clientId: process.env.ANILIST_ID || "21642",
+      clientSecret: process.env.ANILIST_SECRET || "Nwc8PwjbZ4AUltCaLOxC4dQs8TbwXA5M5vpd0jmz",
       token: "https://anilist.co/api/v2/oauth/token",
+      client: {
+        token_endpoint_auth_method: "client_secret_post",
+      },
+      checks: [],
+
       authorization: {
         url: "https://anilist.co/api/v2/oauth/authorize",
         params: {
           scope: "",
           response_type: "code",
-          client_id: process.env.ANILIST_ID,
+          client_id: process.env.ANILIST_ID || "21642",
         },
       },
       userinfo: {
+
         url: "https://graphql.anilist.co",
         async request(context) {
           // console.log(context.tokens.access_token);
@@ -124,8 +134,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           };
         },
       },
-      clientId: process.env.ANILIST_ID,
-      clientSecret: process.env.ANILIST_SECRET,
       profile(profile) {
         return {
           token: profile.token,
@@ -138,16 +146,35 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         };
       },
     },
+
   ],
   session: {
     //Sets the session to use JSON Web Token
     strategy: "jwt",
   },
   callbacks: {
+    async redirect({ url, baseUrl }) {
+      if (
+        url.includes("signout") ||
+        url.includes("sign-out") ||
+        url.includes("logout") ||
+        url === baseUrl ||
+        url === "/" ||
+        url === `${baseUrl}/` ||
+        url === `${baseUrl}/en`
+      ) {
+        return `${baseUrl}/en`;
+      }
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      if (new URL(url).origin === baseUrl) return url;
+      return `${baseUrl}/en/auth/success`;
+    },
+
     async jwt({ token, user }) {
       return { ...token, ...user };
     },
     async session({ session, token, user }) {
+
       session.user = token;
       return session;
     },

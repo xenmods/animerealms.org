@@ -40,6 +40,8 @@ import {
   SettingSliderItem,
 } from "@/components/settings/setting-helpers";
 import { SubtitleSettings } from "@/components/settings/subtitle-settings";
+import { ProviderSettings } from "@/components/settings/provider-settings";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -153,8 +155,9 @@ export default function SettingsPage() {
       // clear localstorage
       localStorage.clear();
       await deleteAccount();
-      await signOut();
+      await signOut({ callbackUrl: "/en" });
     } catch (error) {
+
       console.error("Failed to delete account", error);
     } finally {
       setIsDeleting(false);
@@ -404,10 +407,11 @@ export default function SettingsPage() {
                             </Button>
                             <Button
                               variant={"destructive"}
-                              onClick={() => signOut()}
+                              onClick={() => signOut({ callbackUrl: "/en" })}
                             >
                               {tShared("signOut")}
                             </Button>
+
                           </div>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
@@ -447,7 +451,7 @@ export default function SettingsPage() {
                               <p className="text-muted-foreground text-sm">
                                 {t("delete_account_description")}
                               </p>
-                            </div>{" "}
+                            </div>
                             <Button
                               variant="destructive"
                               onClick={() => setShowDeleteAlert(true)}
@@ -455,8 +459,35 @@ export default function SettingsPage() {
                               {tShared("delete")}
                             </Button>
                           </div>
+
+                          {/* Diagnostic Logs Card */}
+                          <div className="w-full bg-card/60 flex flex-col sm:flex-row items-center justify-between gap-4 rounded-xl p-6 sm:p-8 col-span-1 sm:col-span-3 border border-border/40">
+                            <div className="flex flex-col gap-1 text-left">
+                              <h2 className="font-semibold text-lg flex items-center gap-2">
+                                <Icon icon="solar:document-text-bold" className="w-5 h-5 text-primary" />
+                                <span>Diagnostic & App Logs</span>
+                              </h2>
+                              <p className="text-muted-foreground text-sm">
+                                Copy playback, network, and error logs to clipboard to share and diagnose issues.
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              className="w-full sm:w-auto shrink-0"
+                              onClick={() => {
+                                const logs = (window as any).__getLogs ? (window as any).__getLogs() : "No logs available";
+                                navigator.clipboard.writeText(logs);
+                                toast.success("Debug logs copied to clipboard!");
+                              }}
+                            >
+                              <Icon icon="solar:copy-linear" className="w-4 h-4 mr-2" />
+                              Copy Debug Logs
+                            </Button>
+                          </div>
                         </div>
                       </div>
+
+
                     ) : (
                       <div className="w-full bg-card/60 flex flex-col sm:flex-row items-center justify-between rounded-xl p-6 sm:p-8">
                         <div className="w-full sm:w-3/4 text-center sm:text-left">
@@ -862,57 +893,13 @@ export default function SettingsPage() {
                   className="min-h-[80vh] snap-start flex justify-center px-4 py-12"
                 >
                   <div className="max-w-5xl w-full">
-                    <div className="flex items-center justify-between mb-6">
-                      <h2 className="text-4xl sm:text-6xl font-bold text-foreground">
-                        {t("providers_section")}
-                      </h2>
-                      <Button
-                        variant="outline"
-                        onClick={() =>
-                          updateSetting("providerOrder", providerNames)
-                        }
-                      >
-                        Reset
-                      </Button>
-                    </div>
-                    <div
-                      className="text-muted-foreground text-sm mb-4"
-                      id="providers"
-                    >
-                      {t("provider_description")}
-                    </div>
-                    <Sortable.Root
-                      value={settings.providerOrder || []}
-                      onValueChange={(newOrder) => {
-                        updateSetting("providerOrder", newOrder);
-                      }}
-                      orientation="vertical"
-                    >
-                      <Sortable.Content className="space-y-2 h-[450px] overflow-y-auto no-scrollbar py-2">
-                        {(settings.providerOrder || []).map((provider) => (
-                          <Sortable.Item
-                            key={provider}
-                            value={provider}
-                            className="bg-card p-4 rounded-lg flex items-center justify-between"
-                          >
-                            <div className="flex items-center gap-4">
-                              <Sortable.ItemHandle>
-                                <GripVertical className="text-muted-foreground" />
-                              </Sortable.ItemHandle>
-                              <span className="font-medium">
-                                {providersConfig[provider]?.name || provider}
-                              </span>
-                            </div>
-                            {providersConfig[provider]?.name.includes(
-                              "Dub",
-                            ) && <Badge variant="outline">Dub</Badge>}
-                          </Sortable.Item>
-                        ))}
-                      </Sortable.Content>
-                      <Sortable.Overlay />
-                    </Sortable.Root>
+                    <h2 className="text-4xl sm:text-6xl font-bold text-foreground mb-6">
+                      {t("providers_section")}
+                    </h2>
+                    <ProviderSettings />
                   </div>
                 </section>
+
 
                 {/* Subtitles Section */}
                 <section
@@ -936,15 +923,39 @@ export default function SettingsPage() {
                     <h2 className="text-4xl sm:text-6xl font-bold text-foreground mb-6">
                       {t("connections_section")}
                     </h2>
-                    <SettingInput
-                      title={t("customProxy")}
-                      description={t("customProxyDescription")}
-                      value={settings.proxyUrl}
-                      onChange={(e) =>
-                        updateSetting("proxyUrl", e.target.value)
+                    <SettingItem
+                      title="Discord Rich Presence"
+                      description="Show the anime you are currently watching and your progress on Discord."
+                      checked={settings.discordRpc}
+                      onCheckedChange={(checked) =>
+                        updateSetting("discordRpc", checked)
                       }
-                      placeholder={t("customProxyPlaceholder")}
                     />
+
+                    <div className="pt-4 border-t border-border mt-4">
+                      <SettingInput
+                        title="AniList Access Token"
+                        description="Personal AniList OAuth token for instant 1-year persistent synchronization without client secrets."
+                        value={settings.anilistToken}
+                        type="password"
+                        onChange={(e) =>
+                          updateSetting("anilistToken", e.target.value)
+                        }
+                        placeholder="Paste AniList OAuth access token here"
+                      />
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        <a
+                          href="https://anilist.co/api/v2/oauth/authorize?client_id=23749&response_type=token"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary underline hover:opacity-80 inline-flex items-center gap-1"
+                        >
+                          <span>Get your 1-click AniList Token here ↗</span>
+                        </a>
+                      </div>
+                    </div>
+
+
 
                     <div className="flex flex-col gap-2 pt-4 border-t border-border mt-4">
                       <SettingInput
@@ -957,6 +968,7 @@ export default function SettingsPage() {
                         }
                         placeholder="Paste 'ui' cookie value here"
                       />
+
                       <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 text-sm text-yellow-500">
                         <p className="font-semibold mb-1">
                           How to get this token:

@@ -1218,3 +1218,34 @@
 }
 
 /* The Old screen getting slightly darker/smaller behind the wave */
+
+/* Desktop App Native Spacing & Hidden Scrollbars */
+.desktop-app-active .desktop-content-area {
+  padding-top: 2.25rem;
+}
+
+.desktop-app-active .desktop-content-area:has(.watch-page-container),
+.desktop-app-active .desktop-content-area.no-padding {
+  padding-top: 0 !important;
+}
+
+/* App-Wide Hidden Scrollbars */
+html,
+body,
+* {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+
+
+

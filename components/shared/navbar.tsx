@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { LANGUAGES, THEMES } from "@/lib/consts";
 import { signIn, signOut, useSession } from "next-auth/react";
-import { CheckIcon } from "lucide-react";
 // import { flushSync } from "react-dom"; // Removed
 import { NotificationDialog } from "./notification-dialog";
 import { useThemeTransition } from "@/components/shared/theme-transition";
@@ -131,9 +130,19 @@ export default function Navbar({
                   <span>Visions</span>
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/downloads" className="w-full cursor-pointer">
+                  <Icon
+                    icon="solar:download-minimalistic-bold"
+                    className="mr-2 h-4 w-4"
+                  />
+                  <span>Downloads</span>
+                </Link>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+
 
         {/* middle: nav (commented out) */}
         {/* ... */}
@@ -160,7 +169,9 @@ export default function Navbar({
                     {label}
                   </span>
                   <span>
-                    {theme === key ? <CheckIcon className="size-4" /> : null}
+                    {theme === key ? (
+                      <Icon icon="solar:check-read-bold" className="size-4 text-primary" />
+                    ) : null}
                   </span>
                 </DropdownMenuItem>
               ))}
@@ -171,14 +182,20 @@ export default function Navbar({
           <div className="w-px h-6 bg-border" />
           {/* login */}
           <DropdownMenu>
-            <DropdownMenuTrigger>
-              <img
-                src={session?.user?.image.large || "/cat.jpg"}
-                alt={session?.user?.name?.slice(0, 1) || "U"}
-                className="w-6 h-6 rounded-full border border-primary/30 bg-muted-foreground cursor-pointer hover:opacity-80 transition-opacity"
-              />
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="outline-none focus:outline-none rounded-full p-0.5 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center cursor-pointer"
+              >
+                <img
+                  src={session?.user?.image?.large || "/cat.jpg"}
+                  alt={session?.user?.name?.slice(0, 1) || "U"}
+                  className="w-6 h-6 rounded-full border border-primary/30 bg-muted-foreground object-cover"
+                />
+              </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent>
+            <DropdownMenuContent align="end" sideOffset={8}>
+
               {session?.user?.name === "xen" && (
                 <DropdownMenuItem
                   onSelect={() => {
@@ -199,6 +216,13 @@ export default function Navbar({
               )}
               <DropdownMenuItem
                 onSelect={() => {
+                  router.push("/downloads");
+                }}
+              >
+                Downloads
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
                   router.push("/settings");
                 }}
               >
@@ -207,15 +231,17 @@ export default function Navbar({
               <DropdownMenuItem
                 variant={session?.user ? "destructive" : "default"}
                 onSelect={() => {
-                  session?.user ? signOut() : router.push("/login");
+                  session?.user ? signOut({ callbackUrl: "/en" }) : router.push("/login");
                 }}
               >
                 {session?.user ? tShared("signOut") : tShared("signIn")}
               </DropdownMenuItem>
+
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
     </>
+
   );
 }

@@ -38,8 +38,11 @@ export interface Settings {
   proxyUrl: string;
   lowPerformanceMode: boolean;
 
-  // Connections
+  // Desktop & Connections
+  discordRpc: boolean;
+  anilistToken: string;
   febboxUiToken: string;
+
 
   // Homepage
   homepageLayout: string[];
@@ -76,10 +79,13 @@ export const defaultSettings: Settings = {
   shortcuts: defaultShortcuts,
   discoverSection: true,
   showThumbnails: true,
-  proxyUrl: process.env.NEXT_PUBLIC_PROXY_URL || "",
+  proxyUrl: process.env.NEXT_PUBLIC_PROXY_URL || "http://127.0.0.1:39282",
   lowPerformanceMode: false,
+  discordRpc: true,
+  anilistToken: "",
   febboxUiToken: "",
   homepageLayout: [
+
     "watched",
     "schedule",
     "trending",
@@ -171,6 +177,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   // Load from DB when session is ready
   useEffect(() => {
+    let mounted = true;
+    const timer = setTimeout(() => {
+      if (mounted) setIsLoading(false);
+    }, 1500);
+
     async function syncWithServer() {
       if (status === "loading") return;
 
@@ -179,7 +190,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           // Fetch DB settings
           const dbSettings = await loadUserSettings(session.user.name);
 
-          if (dbSettings) {
+          if (dbSettings && mounted) {
             const merged = mergeSettings(dbSettings);
             setSettings(merged);
             setSavedSettings(merged);
@@ -192,11 +203,17 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       }
       // If unauthenticated, we already loaded from localStorage in useState, so we are good.
 
-      setIsLoading(false);
+      if (mounted) setIsLoading(false);
     }
 
     syncWithServer();
+
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
   }, [status, session]);
+
 
   // Track unsaved changes
   useEffect(() => {

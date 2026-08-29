@@ -1,28 +1,31 @@
 import { MongoClient } from "mongodb";
-
-if (!process.env.MONGODB_URI) {
-  throw new Error('Invalid/Missing environment variable: "MONGODB_URI"');
-}
+import { localDbInstance } from "./local-storage";
 
 const uri = process.env.MONGODB_URI;
-const options = {};
+let clientPromise: Promise<any>;
 
-let client;
-let clientPromise: Promise<MongoClient>;
-
-if (process.env.NODE_ENV === "development") {
-  let globalWithMongo = global as typeof globalThis & {
-    _mainMongoClientPromise?: Promise<MongoClient>;
-  };
-
-  if (!globalWithMongo._mainMongoClientPromise) {
-    client = new MongoClient(uri, options);
-    globalWithMongo._mainMongoClientPromise = client.connect();
-  }
-  clientPromise = globalWithMongo._mainMongoClientPromise;
+if (!uri) {
+  // Desktop / offline fallback mode
+  clientPromise = Promise.resolve(localDbInstance as any);
 } else {
-  client = new MongoClient(uri, options);
-  clientPromise = client.connect();
+  const options = {};
+  let client: MongoClient;
+
+  if (process.env.NODE_ENV === "development") {
+    let globalWithMongo = global as typeof globalThis & {
+      _mainMongoClientPromise?: Promise<MongoClient>;
+    };
+
+    if (!globalWithMongo._mainMongoClientPromise) {
+      client = new MongoClient(uri, options);
+      globalWithMongo._mainMongoClientPromise = client.connect();
+    }
+    clientPromise = globalWithMongo._mainMongoClientPromise;
+  } else {
+    client = new MongoClient(uri, options);
+    clientPromise = client.connect();
+  }
 }
 
 export default clientPromise;
+

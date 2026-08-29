@@ -42,10 +42,13 @@ export function MotionProvider({ children }: { children: React.ReactNode }) {
     return (
       <div className="inset-0 w-screen h-screen bg-background/70 flex flex-col items-center justify-center z-50 gap-3">
         <Loader2 className="animate-spin w-7 h-7" />
-        <p className="text-sm text-muted-foreground">{randomLoadingText}</p>
+        <p suppressHydrationWarning className="text-sm text-muted-foreground">
+          {randomLoadingText}
+        </p>
       </div>
     );
   }
+
 
   const isReduced = prefersReducedMotion || settings.lowPerformanceMode;
 

@@ -19,8 +19,16 @@ import { LiquidSVG } from "@/components/shared/liquid-svg";
 import { ThemeTransitionProvider } from "@/components/shared/theme-transition";
 import { CommandMenu } from "@/components/shared/command-menu";
 import { DonationButton } from "@/components/shared/donation-button";
+import { DesktopHeader } from "@/components/desktop/desktop-header";
+import { DesktopContextMenu } from "@/components/desktop/desktop-context-menu";
+import { DiscordPresenceManager } from "@/components/desktop/discord-presence-manager";
+import { OfflineBanner } from "@/components/desktop/offline-banner";
+
+
+
 
 export const metadata: Metadata = {
+
   title: "Anime Realms",
   description: "Watch your favorite anime for free with no ads ever! (っ'ヮ'c)",
   openGraph: {
@@ -37,7 +45,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta
           name="viewport"
@@ -50,35 +58,44 @@ export default function RootLayout({
         ></meta>
         <meta name="darkreader-lock" />
       </head>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        themes={Object.keys(THEMES)}
-      >
-        <ThemeFontManager />
-        <body className="antialiased select-none">
+      <body className="antialiased select-none">
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          themes={Object.keys(THEMES)}
+        >
+          <ThemeFontManager />
+          <DesktopHeader />
           <NextIntlClientProvider>
             <SessionProvider refetchOnWindowFocus={false}>
               <SettingsProvider>
                 <MotionProvider>
                   <ThemeTransitionProvider>
                     <ReducedMotionWrapper>
-                      {children}
+                      <div className="desktop-content-area min-h-screen">
+                        <OfflineBanner />
+                        {children}
+                      </div>
+
                       <UpdateDialog />
                       <SnowParticles />
                       <LiquidSVG />
                       <CommandMenu />
+                      <DesktopContextMenu />
+                      <DiscordPresenceManager />
                     </ReducedMotionWrapper>
+
+
                   </ThemeTransitionProvider>
-                  <DonationButton />
                 </MotionProvider>
               </SettingsProvider>
             </SessionProvider>
             <Toaster />
           </NextIntlClientProvider>
-        </body>
-        <GoogleAnalytics gaId="G-HP0KRY884Y" />
-      </ThemeProvider>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }
+
+

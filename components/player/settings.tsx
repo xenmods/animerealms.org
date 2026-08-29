@@ -14,6 +14,11 @@ import { cn, getDeviceLanguage } from "@/lib/utils";
 import { providerNames, providersConfig } from "@/lib/providers/list";
 import { CheckIcon, Loader2 } from "lucide-react"; // Added Loader2
 import { LayoutGroup, AnimatePresence, motion } from "framer-motion";
+import { toast } from "sonner";
+import { isTauri, startEpisodeDownload, openDownloadsFolder } from "@/lib/tauri";
+import { DownloadModal } from "./download-modal";
+
+
 import {
   useMediaStore,
   useGetStore,
@@ -78,6 +83,8 @@ export default function Settings({
   const [autoplay, setAutoplay] = useState(true);
   const [autoNext, setAutoNext] = useState(true);
   const [generateThumbnails, setGenerateThumbnails] = useState(true);
+  const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+
 
   // State to track status for each provider
   const [providerStatus, setProviderStatus] = useState<ProviderStatusState>({});
@@ -469,35 +476,7 @@ export default function Settings({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => {
-                    if (stream?.downloadLink) {
-                      window.open(stream.downloadLink, "_blank");
-                    } else {
-                      const titleRaw =
-                        animeDetails.title.english ||
-                        animeDetails.title.romaji ||
-                        "Unknown Anime";
-                      const safeTitle = titleRaw
-                        .replace(/[\/\\?%*:|"<>]/g, "")
-                        .trim();
-
-                      const totalEps = animeDetails.episodes;
-                      const padLength = totalEps ? String(totalEps).length : 2;
-
-                      const epNum = String(episode.episode_number).padStart(
-                        padLength,
-                        "0"
-                      );
-
-                      const fileName = `[${providerConfig.name}] ${safeTitle} - ${epNum}`;
-
-                      const customUrl = `https://download.animerealms.org/?url=${encodeURIComponent(
-                        src
-                      )}&filename=${encodeURIComponent(fileName)}`;
-
-                      window.open(customUrl, "_blank");
-                    }
-                  }}
+                  onClick={() => setIsDownloadModalOpen(true)}
                   className="w-full flex items-center justify-between py-3 hover:bg-muted/30 rounded-lg transition-colors px-4"
                 >
                   <span className="text-sm text-muted-foreground">
@@ -510,11 +489,11 @@ export default function Settings({
                 </button>
               </TooltipTrigger>
               <TooltipContent className={`bg-muted text-white`}>
-                {stream?.downloadLink
-                  ? t("downloadAvailable")
-                  : "Custom Download (beta)"}
+                Download Episode
               </TooltipContent>
             </Tooltip>
+
+
 
             {/* Watch Party option */}
             <button className="w-full flex items-center justify-between py-3 px-1 hover:bg-muted/30 rounded-lg transition-colors px-4">
@@ -1059,16 +1038,21 @@ export default function Settings({
             <div className="space-y-2 max-h-[400px] overflow-y-auto no-scrollbar">
               {providersToUse &&
                 providersToUse.map((providerKey) => {
-                  const provider = providersConfig[providerKey];
+                  const provider = providersConfig[providerKey] || {
+                    name: providerKey,
+                    short: providerKey,
+                  };
                   const status = providerStatus[providerKey] || {
                     status: "idle",
                   };
                   const isSelected = provider.short === providerConfig.short;
-                  const pname = provider.name.replace(" Dub", "");
-                  const isDub = provider.name.includes("Dub");
+                  const pname = (provider.name || providerKey).replace(" Dub", "");
+                  const isDub = (provider.name || "").includes("Dub");
+                  const isLocal = providerKey === "local-download";
+                  const isCustom = providerKey.startsWith("custom-");
 
                   return (
-                    <div key={provider.name}>
+                    <div key={provider.name || providerKey}>
                       <button
                         onClick={() => handleProviderSelect(providerKey)}
                         // Disable button while this provider is loading
@@ -1080,8 +1064,18 @@ export default function Settings({
                         )}
                       >
                         <span className="flex items-center justify-between w-full">
-                          <span>
+                          <span className="flex items-center gap-1.5">
                             {pname}{" "}
+                            {isLocal && (
+                              <Badge variant="outline" className="text-[9px] text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
+                                Local
+                              </Badge>
+                            )}
+                            {isCustom && (
+                              <Badge variant="outline" className="text-[9px] text-purple-400 border-purple-500/30 bg-purple-500/10">
+                                Custom
+                              </Badge>
+                            )}
                             {isDub && (
                               <Badge variant="default" className="text-[8px]">
                                 <Icon icon="solar:translation-2-bold" />{" "}
@@ -1089,6 +1083,7 @@ export default function Settings({
                               </Badge>
                             )}
                           </span>
+
                           {status.status === "loading" && (
                             <Loader2 className="size-4 animate-spin" />
                           )}
@@ -1204,27 +1199,41 @@ export default function Settings({
   };
 
   return (
-    <Popover onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <PlayerButton
-          title={t("settings")}
-          className="hover:scale-110 transition-transform duration-200"
+    <>
+      <Popover onOpenChange={onOpenChange}>
+        <PopoverTrigger asChild>
+          <PlayerButton
+            title={t("settings")}
+            className="hover:scale-110 transition-transform duration-200"
+          >
+            <Icon
+              icon="solar:settings-bold"
+              className="h-4 w-4 sm:h-6 sm:w-6 text-white"
+            />
+          </PlayerButton>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          side="top"
+          className="w-80 p-0 bg-background/95 backdrop-blur-md mb-3 rounded-2xl overflow-hidden border-border/50 max-h-[calc(100vh-10rem)] overflow-y-auto no-scrollbar"
+          onClick={(e) => e.stopPropagation()}
+          containerRef={containerRef}
         >
-          <Icon
-            icon="solar:settings-bold"
-            className="h-4 w-4 sm:h-6 sm:w-6 text-white"
-          />
-        </PlayerButton>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        side="top"
-        className="w-80 p-0 bg-background/95 backdrop-blur-md mb-3 rounded-2xl overflow-hidden border-border/50 max-h-[calc(100vh-10rem)] overflow-y-auto no-scrollbar"
-        onClick={(e) => e.stopPropagation()}
-        containerRef={containerRef}
-      >
-        <LayoutGroup>{renderContent()}</LayoutGroup>
-      </PopoverContent>
-    </Popover>
+          <LayoutGroup>{renderContent()}</LayoutGroup>
+        </PopoverContent>
+      </Popover>
+
+
+      <DownloadModal
+        isOpen={isDownloadModalOpen}
+        onClose={() => setIsDownloadModalOpen(false)}
+        animeDetails={animeDetails}
+        episode={episode}
+        currentSrc={src}
+        streams={streams}
+        providerConfig={providerConfig}
+      />
+    </>
   );
 }
+

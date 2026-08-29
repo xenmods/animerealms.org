@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   useEffect,
   useState,
@@ -9,12 +9,16 @@ import {
   useMemo, // Import useMemo
   useCallback,
 } from "react";
+
 import { providerNames, providersConfig } from "@/lib/providers/list";
 import type {
   Stream,
   ScrapeResult as ScrapeResultType,
 } from "@/lib/providers/types";
+import { getCustomProviders, getLoadedCustomProvider } from "@/lib/providers/custom-manager";
+import { scrapeLocalDownloadProvider } from "@/lib/providers/local-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
 import { Loader2, CheckCircle2, XCircle, Circle } from "lucide-react";
 import { MediaPlayer } from "@/components/player/player";
 import {
@@ -42,17 +46,40 @@ interface ScrapeResult extends ScrapeResultType {
 
 function WatchComponent() {
   const { anime, episode_number } = useParams();
+  const searchParams = useSearchParams();
   const anilistId = anime as string;
   const episodeNumber = episode_number as string;
 
+  const isOffline = searchParams?.get("offline") === "true";
+  const localFilePath = searchParams?.get("file");
+  const paramTitle = searchParams?.get("title");
+  const paramCover = searchParams?.get("cover");
+
   const { settings, isLoading: isSettingsLoading } = useSettings();
   const t = useTranslations("Watch");
+
+  const [customProvidersList, setCustomProvidersList] = useState<string[]>([]);
+
+  useEffect(() => {
+    getCustomProviders().then((customs) => {
+      const activeCustomIds = customs.filter((c) => c.enabled).map((c) => c.id);
+      setCustomProvidersList(activeCustomIds);
+    });
+  }, []);
 
   const providersToUse = useMemo(() => {
     if (isSettingsLoading) {
       return null;
     }
-    let orderedProviders = settings.providerOrder || providerNames;
+    const baseNames = Array.from(new Set([...providerNames, ...customProvidersList]));
+    let orderedProviders = settings.providerOrder || baseNames;
+
+    // Ensure all registered providers exist in the order list
+    for (const p of baseNames) {
+      if (!orderedProviders.includes(p)) {
+        orderedProviders = [...orderedProviders, p];
+      }
+    }
 
     if (settings.prioritiseLastUsedSource) {
       try {
@@ -78,7 +105,9 @@ function WatchComponent() {
     settings.providerOrder,
     settings.prioritiseLastUsedSource,
     anilistId,
+    customProvidersList,
   ]);
+
 
   const [results, setResults] = useState<ScrapeResult[]>([]);
 
@@ -260,26 +289,70 @@ function WatchComponent() {
       }, 150);
 
       try {
-        const response = await fetch(`/api/watch`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            provider: provider,
-            anilistId: anilistIdNum,
-            episodeNumber: episodeNumberNum,
-            config:
-              provider === "febbox"
-                ? { cookie: settings.febboxUiToken }
-                : undefined,
-          }),
-        });
+        let result: any = null;
 
-        if (!response.ok) {
-          throw new Error(`API request failed: ${response.statusText}`);
+        if (provider === "local-download") {
+          const titles = [
+            animeDetails?.title?.english,
+            animeDetails?.title?.romaji,
+            animeDetails?.title?.native,
+            typeof anime === "string" ? anime.replace(/-/g, " ") : "",
+            paramTitle,
+          ].filter(Boolean) as string[];
+
+          result = await scrapeLocalDownloadProvider(titles, episodeNumberNum);
+        } else if (provider.startsWith("custom-")) {
+          const customMod = await getLoadedCustomProvider(provider);
+          if (!customMod) {
+            result = { notFound: true, message: "Custom provider not loaded" };
+          } else {
+            let mappedId = "";
+            if (typeof customMod.map === "function") {
+              mappedId = await customMod.map(anilistIdNum);
+            } else {
+              mappedId = String(anilistIdNum);
+            }
+
+            if (!mappedId) {
+              result = { notFound: true, message: "Anime not found on custom provider" };
+            } else {
+              let epId = mappedId;
+              if (typeof customMod.getEpisodes === "function") {
+                const eps = await customMod.getEpisodes(mappedId);
+                const matchEp = eps?.find(
+                  (e: any) =>
+                    Number(e.episode_number) === episodeNumberNum ||
+                    e.id === episodeNumberNum
+                );
+                epId = matchEp?.id || mappedId;
+              }
+              result = await customMod.scrape(epId);
+            }
+          }
+        } else {
+          const response = await fetch(`/api/watch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              provider: provider,
+              anilistId: anilistIdNum,
+              episodeNumber: episodeNumberNum,
+              config:
+                provider === "febbox"
+                  ? { cookie: settings.febboxUiToken }
+                  : undefined,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`API request failed: ${response.statusText}`);
+          }
+
+          result = await response.json();
         }
 
-        const result = await response.json();
-        const success = result.streams && result.streams.length > 0;
+        const success = result?.streams && result.streams.length > 0;
+
 
         setResults((prev) =>
           prev.map((r) =>
@@ -353,6 +426,69 @@ function WatchComponent() {
   };
 
   useEffect(() => {
+    // Offline Mode Handling
+    if (isOffline && localFilePath) {
+      const localStreamUrl = `http://127.0.0.1:39282/local_file?path=${encodeURIComponent(
+        localFilePath
+      )}`;
+      const streamItem: Stream = {
+        url: localStreamUrl,
+        quality: "Offline (1080p)",
+        type: "mp4",
+      };
+
+
+
+      setStreams([streamItem]);
+      setSrc(localStreamUrl);
+      setFound(true);
+      setLoading(false);
+
+      const titleStr = paramTitle || decodeURIComponent(anilistId || "Anime");
+      const epNumber = Number.parseInt(episodeNumber, 10) || 1;
+
+      setAnimeDetails({
+        id: !isNaN(Number(anilistId)) ? Number(anilistId) : 1,
+        title: {
+          english: titleStr,
+          romaji: titleStr,
+          native: "",
+        },
+        description: "Offline episode playback.",
+        bannerImage: paramCover || null,
+        coverImage: {
+          extraLarge: paramCover || "",
+          large: paramCover || "",
+          color: null,
+        },
+        genres: ["Offline"],
+        episodes: epNumber,
+        duration: 24,
+        status: "COMPLETED",
+        seasonYear: 2026,
+        averageScore: 100,
+        popularity: 1,
+        format: "TV",
+        studios: { nodes: [] },
+      });
+
+      setEpisode({
+        episode_number: epNumber,
+        name: `Episode ${epNumber}`,
+        still_path: paramCover || null,
+        overview: "Offline downloaded episode.",
+      });
+
+      setEpisodes([
+        {
+          episode_number: epNumber,
+          name: `Episode ${epNumber}`,
+          still_path: paramCover || null,
+        },
+      ]);
+      return;
+    }
+
     if (!anilistId || !episodeNumber) {
       setLoading(false);
       return;
@@ -379,15 +515,15 @@ function WatchComponent() {
       })),
     );
 
-      const fetchEpisodes = async () => {
+    const fetchEpisodes = async () => {
       const eps = await getEpisodesAnilist(anilistIdNum);
       setEpisodes(eps || []);
-      
+
       let ep = eps?.find(
         (e) =>
           e.episode_number === episodeNumberNum || e.id === episodeNumberNum,
       );
-      
+
       if (!ep) {
         ep = {
           episode_number: episodeNumberNum,
@@ -401,10 +537,8 @@ function WatchComponent() {
 
     fetchEpisodes();
     fetchAnimeDetails(anilistIdNum);
-    scrapeProviders(); // This will now use the correct `providersToUse`
-
-    // Add providersToUse and isSettingsLoading to the dependency array
-  }, [anilistId, episodeNumber, providersToUse, isSettingsLoading]);
+    scrapeProviders();
+  }, [anilistId, episodeNumber, providersToUse, isSettingsLoading, isOffline, localFilePath]);
 
   useEffect(() => {
     if (streams.length > 0) {
@@ -412,7 +546,7 @@ function WatchComponent() {
     }
   }, [streams]);
 
-  // 5. Add a loading guard for settings
+  // Loading guard for settings
   if (isSettingsLoading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -422,10 +556,11 @@ function WatchComponent() {
   }
 
   if (
-    !anilistId ||
-    !episodeNumber ||
-    isNaN(Number.parseInt(anilistId)) ||
-    isNaN(Number.parseInt(episodeNumber))
+    !isOffline &&
+    (!anilistId ||
+      !episodeNumber ||
+      isNaN(Number.parseInt(anilistId)) ||
+      isNaN(Number.parseInt(episodeNumber)))
   ) {
     return (
       <div className="flex items-center justify-center min-h-screen p-4">
@@ -438,6 +573,7 @@ function WatchComponent() {
       </div>
     );
   }
+
 
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   const [commentsWidth, setCommentsWidth] = useState(500);
@@ -524,28 +660,11 @@ function WatchComponent() {
     );
   }
 
-  if (
-    !anilistId ||
-    !episodeNumber ||
-    isNaN(Number.parseInt(anilistId)) ||
-    isNaN(Number.parseInt(episodeNumber))
-  ) {
-    return (
-      <div className="flex items-center justify-center min-h-screen p-4">
-        <Alert variant="destructive" className="max-w-md">
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>
-            Invalid or missing Anime ID or Episode Number in the URL.
-          </AlertDescription>
-        </Alert>
-      </div>
-    );
-  }
-
   return (
     <>
-      <div className="flex w-screen h-screen overflow-hidden bg-black">
+      <div className="watch-page-container flex w-screen h-screen overflow-hidden bg-black">
         <div className="relative flex-1 h-screen">
+
           {animeDetails && episode && (
             <MediaPlayer
               episode={episode}
@@ -565,8 +684,10 @@ function WatchComponent() {
               isDesktop={isDesktop}
               commentsWidth={commentsWidth}
               logoUrl={logoUrl}
+              isOffline={isOffline}
             />
           )}
+
           {!found && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/95 z-10 p-4">
               <div className="w-full max-w-2xl space-y-6 p-6">

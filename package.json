@@ -5,9 +5,15 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
+    "postbuild": "node scripts/copy-standalone-assets.mjs",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build"
   },
+
+
   "dependencies": {
     "@base-ui-components/react": "^1.0.0-beta.4",
     "@consumet/extensions": "^1.8.7",
@@ -34,6 +40,11 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.2",
+    "@tauri-apps/plugin-notification": "^2.3.3",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
     "@textea/json-viewer": "^4.0.1",
     "@types/string-similarity": "^4.0.2",
     "@uiw/react-md-editor": "^4.0.8",
@@ -86,6 +97,7 @@
     "@iconify/react": "^6.0.2",
     "@tailwindcss/postcss": "^4",
     "@tailwindcss/typography": "^0.5.19",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/color": "^4.2.0",
     "@types/lodash.clamp": "^4.0.9",
     "@types/node": "^20",

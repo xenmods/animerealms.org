@@ -23,6 +23,8 @@ import { useAnilist } from "@/lib/hooks/use-anilist";
 import { Link } from "@/i18n/navigation";
 import { ListEditor } from "./list-editor";
 import { useSettings } from "@/components/settings-context";
+import { isTauri, setDiscordPresence } from "@/lib/tauri";
+
 
 interface AnimeDetails {
   id: number;
@@ -76,9 +78,40 @@ export function AnimeCard({
   const { settings } = useSettings();
   const isDesktop = typeof window !== "undefined" && window.innerWidth >= 640;
 
+  React.useEffect(() => {
+    if (isOpen && anime && isTauri()) {
+      const title =
+        animeDetails?.title?.english ||
+        animeDetails?.title?.romaji ||
+        anime.title?.english ||
+        anime.title?.romaji ||
+        "Anime";
+      const cover =
+        animeDetails?.coverImage?.extraLarge ||
+        animeDetails?.coverImage?.large ||
+        anime.coverImage?.extraLarge ||
+        anime.coverImage?.large;
+      const anilistId = animeDetails?.id || anime.id;
+
+      setDiscordPresence({
+        details: `Browsing: ${title}`,
+        state: "Viewing Anime Details",
+        largeImage: cover,
+        largeText: title,
+        button1Label: "View on AniList",
+        button1Url: anilistId
+          ? `https://anilist.co/anime/${anilistId}`
+          : "https://anilist.co",
+        button2Label: "Anime Realms",
+        button2Url: "https://github.com/xenmods/animerealms.org",
+      });
+    }
+  }, [isOpen, animeDetails, anime]);
+
   if (!settings.nsfwMode && anime?.isAdult) {
     return null;
   }
+
 
   const fetchAnimeDetails = async (id: number) => {
     setIsLoading(true);

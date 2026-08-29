@@ -112,9 +112,14 @@ export async function POST(request: NextRequest) {
       "https://animerealms.org",
       "https://www.animerealms.org",
       "http://localhost:3000",
+      "http://localhost",
+      "http://127.0.0.1",
+      "tauri://localhost",
+      "http://tauri.localhost",
+      "https://tauri.localhost",
     ];
 
-    const isAllowed = origin && allowedOrigins.some((o) => origin.includes(o));
+    const isAllowed = !origin || allowedOrigins.some((o) => origin.includes(o));
 
     if (!isAllowed) {
       result.streams = [
@@ -124,6 +129,7 @@ export async function POST(request: NextRequest) {
         },
       ];
     }
+
 
     return NextResponse.json(result);
   } catch (error) {

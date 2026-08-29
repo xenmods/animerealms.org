@@ -29,8 +29,20 @@ import { ThumbnailScraper } from "./thumbnails-scraper";
 import { useCaptions } from "@/hooks/limeplay/use-captions";
 import { CaptionsContainer } from "../limeplay/captions";
 import { providerNames, providersConfig } from "@/lib/providers/list";
+import { enqueueOfflineProgress } from "@/lib/sync-queue";
+
+import {
+  isTauri,
+  setDiscordPresence,
+  clearDiscordPresence,
+  toggleFullscreenWindow,
+  isWindowFullscreen,
+} from "@/lib/tauri";
+
+
 
 const formatTime = (timeInSeconds: number) => {
+
   if (isNaN(timeInSeconds)) return "00:00";
   const time = Math.floor(timeInSeconds);
   const hours = Math.floor(time / 3600);
@@ -79,10 +91,12 @@ interface PlayerProps {
   setSubtitles?: (subtitles: any[]) => void;
   commentsWidth?: number;
   logoUrl?: string | null;
+  isOffline?: boolean;
 }
 
 function MediaPlayerInternal({
   src,
+
   setSrc,
   poster,
   episode,
@@ -99,7 +113,9 @@ function MediaPlayerInternal({
   commentsWidth,
   subtitles,
   logoUrl,
+  isOffline,
 }: PlayerProps) {
+
   const t = useTranslations("Player");
   const tWatch = useTranslations("Watch");
   const { settings, isLoading: settingsLoading } = useSettings();
@@ -109,11 +125,12 @@ function MediaPlayerInternal({
     if (settingsLoading) return; // Wait for settings to load
 
     if (providerConfig?.proxyRequired) {
+      const proxyBase = "http://127.0.0.1:39282";
       const encodedUrl = encodeURIComponent(src || "");
       const encodedRef = providerConfig?.ref
         ? encodeURIComponent(providerConfig.ref)
         : "";
-      let newSrc = `${settings.proxyUrl}/fetch?url=${encodedUrl}`;
+      let newSrc = `${proxyBase}/fetch?url=${encodedUrl}`;
       if (encodedRef) {
         newSrc += `&ref=${encodedRef}`;
       }
@@ -121,7 +138,8 @@ function MediaPlayerInternal({
     } else {
       setProcessedSrc(src);
     }
-  }, [src, providerConfig, settings, settingsLoading]);
+  }, [src, providerConfig]);
+
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -164,7 +182,6 @@ function MediaPlayerInternal({
   const setTextTrackContainerElement = useMediaStore(
     (state) => state.setTextTrackContainerElement,
   );
-
   const { toggleCaptionVisibility } = useCaptions();
 
   useEffect(() => {
@@ -172,6 +189,81 @@ function MediaPlayerInternal({
       setTextTrackContainerElement(captionContainerRef.current);
     }
   }, [captionContainerRef, setTextTrackContainerElement]);
+
+
+  useEffect(() => {
+    if (!settings.discordRpc || !animeDetails?.title) return;
+    const title =
+      animeDetails.title.english ||
+      animeDetails.title.romaji ||
+      animeDetails.title.native ||
+      "Anime";
+    const cover =
+      animeDetails.coverImage?.extraLarge ||
+      animeDetails.coverImage?.large ||
+      animeDetails.bannerImage;
+    const epNum = episode?.episode_number || 1;
+    const anilistId = animeDetails.id;
+
+    // If stream not yet found / loading
+    if (!src) {
+      setDiscordPresence({
+        details: `Watching ${title}`,
+        state: `Episode ${epNum} • Finding stream...`,
+        coverImage: cover,
+        button1Label: "View on AniList",
+        button1Url: anilistId
+          ? `https://anilist.co/anime/${anilistId}`
+          : "https://anilist.co",
+        button2Label: "Anime Realms",
+        button2Url: "https://github.com/xenmods/animerealms.org",
+      });
+      return;
+    }
+
+    const isPaused = status === "paused";
+    let stateLabel = isOffline
+      ? `Episode ${epNum} (Offline)`
+      : `Episode ${epNum}`;
+    if (isPaused) {
+      stateLabel += " • Paused";
+    }
+
+    setDiscordPresence({
+      animeTitle: title,
+      episode: Number(epNum),
+      state: stateLabel,
+      coverImage: cover,
+      timeElapsed: currentTime,
+      duration: !isPaused && duration > 0 ? duration : undefined,
+      button1Label: "View on AniList",
+      button1Url: anilistId
+        ? `https://anilist.co/anime/${anilistId}`
+        : "https://anilist.co",
+      button2Label: "Anime Realms",
+      button2Url: "https://github.com/xenmods/animerealms.org",
+    });
+  }, [
+    animeDetails,
+    episode,
+    src,
+    status,
+    isOffline,
+    Math.floor(currentTime / 5),
+    duration,
+    settings.discordRpc,
+  ]);
+
+
+
+
+  useEffect(() => {
+    return () => {
+      clearDiscordPresence();
+    };
+  }, []);
+
+
 
   useEffect(() => {
     if (status === "ended") {
@@ -206,11 +298,10 @@ function MediaPlayerInternal({
           .filter((subtitle) => subtitle.url)
           .map((subtitle) => {
             let subtitleUrl = subtitle.url;
-            if (providerConfig?.proxyRequired && settings.proxyUrl) {
-              subtitleUrl = `${
-                settings.proxyUrl
-              }/fetch/segment?url=${encodeURIComponent(subtitle.url)}&ref=${encodeURIComponent(subtitle.headers.Referer)}`;
+            if (providerConfig?.proxyRequired) {
+              subtitleUrl = `http://127.0.0.1:39282/fetch/segment?url=${encodeURIComponent(subtitle.url)}&ref=${encodeURIComponent(subtitle.headers?.Referer || "")}`;
             }
+
 
             let mimeType = "text/plain";
             if (subtitle.url.toLowerCase().includes(".vtt")) {
@@ -574,23 +665,43 @@ function MediaPlayerInternal({
 
     setManualSkip(currentState);
 
-    if (!anilistMarked && session?.user && settings.autoTracking) {
+    if (!anilistMarked && (session?.user || isOffline) && settings.autoTracking) {
       const progPercent = (currentTime / duration) * 100;
       if (progPercent >= settings.anilistTrackingThreshold) {
-        toast.promise(markProgress(animeDetails.id, episode.episode_number), {
-          loading: t("markingWatched", {
+        if (isOffline || (typeof navigator !== "undefined" && !navigator.onLine)) {
+          enqueueOfflineProgress({
+            userId: session?.user?.name || undefined,
+            anilistId: animeDetails.id,
             episodeNumber: episode.episode_number,
-          }),
-          success: t("markedWatched", {
-            episodeNumber: episode.episode_number,
-          }),
-          error: t("markWatchedError"),
-          position: "top-center",
-          toasterId: "player-toaster",
-        });
-        setAnilistMarked(true);
+            progress: currentTime,
+            duration: duration,
+            animeTitle: animeDetails.title?.english || animeDetails.title?.romaji,
+          });
+          toast.info(
+            `Queued Episode ${episode.episode_number} for AniList sync when back online`,
+            {
+              position: "top-center",
+              toasterId: "player-toaster",
+            }
+          );
+          setAnilistMarked(true);
+        } else if (session?.user) {
+          toast.promise(markProgress(animeDetails.id, episode.episode_number), {
+            loading: t("markingWatched", {
+              episodeNumber: episode.episode_number,
+            }),
+            success: t("markedWatched", {
+              episodeNumber: episode.episode_number,
+            }),
+            error: t("markWatchedError"),
+            position: "top-center",
+            toasterId: "player-toaster",
+          });
+          setAnilistMarked(true);
+        }
       }
     }
+
 
     updateWatchProgress();
   }, [
@@ -643,11 +754,24 @@ function MediaPlayerInternal({
     setVolume(value[0]);
   };
 
-  const handleFullscreenChange = () => {
-    setIsFullscreen(!!document.fullscreenElement);
-  };
+  useEffect(() => {
+    const handleFullscreenChange = async () => {
+      if (isTauri()) {
+        const fs = await isWindowFullscreen();
+        setIsFullscreen(fs);
+      } else {
+        setIsFullscreen(!!document.fullscreenElement);
+      }
+    };
 
-  document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    window.addEventListener("resize", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      window.removeEventListener("resize", handleFullscreenChange);
+    };
+  }, []);
+
 
   const handlePrevEpisode = () => {
     if (!episodes || !episode || !animeDetails) return;
@@ -794,9 +918,14 @@ function MediaPlayerInternal({
     }
   };
 
-  const toggleFullscreen = () => {
-    const isFullscreen = document.fullscreenElement;
+  const toggleFullscreen = async () => {
+    if (isTauri()) {
+      const nextFs = await toggleFullscreenWindow();
+      setIsFullscreen(nextFs);
+      return;
+    }
 
+    const isFullscreen = document.fullscreenElement;
     if (!isFullscreen) {
       if (document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen();
@@ -813,6 +942,7 @@ function MediaPlayerInternal({
       }
     }
   };
+
 
   const skipTime = (seconds) => {
     console.log(`[PLAYER] Skipping ${seconds} seconds...`);
@@ -1099,61 +1229,66 @@ function MediaPlayerInternal({
       }
     };
 
-    fetchSkipTimes(animeDetails.idMal, episode.episode_number);
+    if (animeDetails?.idMal && episode?.episode_number) {
+      fetchSkipTimes(animeDetails.idMal, episode.episode_number);
+    }
 
-    (async () => {
-      let progress = null;
-      const episodeKey = `${animeDetails.id}-${episode.episode_number}`;
+    if (animeDetails?.id && episode?.episode_number) {
+      (async () => {
+        let progress = null;
+        const episodeKey = `${animeDetails.id}-${episode.episode_number}`;
 
-      try {
-        if (session?.user?.name) {
-          progress = await getUserProgress(
-            session.user.name,
-            animeDetails.id,
-            episode.episode_number,
-          );
-          if (progress) {
-            console.log(`Found progress in DB for ${episodeKey}:`, progress);
-          }
-        } else {
-          const GUEST_PROGRESS_KEY = "anime-progress";
-          const existingProgressString =
-            localStorage.getItem(GUEST_PROGRESS_KEY);
-
-          if (existingProgressString) {
-            const progressMap = new Map(JSON.parse(existingProgressString));
-            progress = progressMap.get(episodeKey);
-            progress = progress?.progress;
+        try {
+          if (session?.user?.name) {
+            progress = await getUserProgress(
+              session.user.name,
+              animeDetails.id,
+              episode.episode_number,
+            );
             if (progress) {
-              console.log(
-                `Found progress in LocalStorage for ${episodeKey}:`,
-                progress,
-              );
+              console.log(`Found progress in DB for ${episodeKey}:`, progress);
+            }
+          } else {
+            const GUEST_PROGRESS_KEY = "anime-progress";
+            const existingProgressString =
+              localStorage.getItem(GUEST_PROGRESS_KEY);
+
+            if (existingProgressString) {
+              const progressMap = new Map(JSON.parse(existingProgressString));
+              progress = progressMap.get(episodeKey);
+              progress = progress?.progress;
+              if (progress) {
+                console.log(
+                  `Found progress in LocalStorage for ${episodeKey}:`,
+                  progress,
+                );
+              }
             }
           }
-        }
 
-        if (progress && mediaRef.current) {
-          const numericProgress = Number(progress);
-          if (!isNaN(numericProgress) && numericProgress > 0) {
-            mediaRef.current.currentTime = numericProgress;
+          if (progress && mediaRef.current) {
+            const numericProgress = Number(progress);
+            if (!isNaN(numericProgress) && numericProgress > 0) {
+              mediaRef.current.currentTime = numericProgress;
+            }
           }
+        } catch (error) {
+          console.error(`Failed to get progress for ${episodeKey}:`, error);
         }
-      } catch (error) {
-        console.error(`Failed to get progress for ${episodeKey}:`, error);
-      }
-    })();
+      })();
 
-    (async () => {
-      try {
-        const aniProgress = await getProgress(animeDetails.id);
-        if (aniProgress) {
-          setAnilistProgress(aniProgress);
+      (async () => {
+        try {
+          const aniProgress = await getProgress(animeDetails.id);
+          if (aniProgress) {
+            setAnilistProgress(aniProgress);
+          }
+        } catch (error) {
+          console.error("Failed to get Anilist progress:", error);
         }
-      } catch (error) {
-        console.error("Failed to get Anilist progress:", error);
-      }
-    })();
+      })();
+    }
+
 
     let savedSettings = localStorage.getItem("realms-player");
     let currentSettings = savedSettings ? JSON.parse(savedSettings) : {};
@@ -1317,13 +1452,23 @@ function MediaPlayerInternal({
         }
       }
 
+      if (isOffline) {
+        console.warn("[PLAYER] Offline playback encountered an issue:", error);
+        toast.error("Could not load offline video file. Please check if the file exists.", {
+          position: "top-center",
+          toasterId: "player-toaster",
+        });
+        return;
+      }
+
       console.warn(
         "[PLAYER] Playback error and no alternative sources. Switching provider...",
       );
       handleProviderSwitch();
     },
-    [streams, src, setSrc, t, handleProviderSwitch],
+    [streams, src, setSrc, t, handleProviderSwitch, isOffline],
   );
+
 
   return (
     <div
