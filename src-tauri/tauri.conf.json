@@ -1,8 +1,9 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Anime Realms",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "org.animerealms.desktop",
+
   "build": {
     "frontendDist": "http://localhost:3000",
     "devUrl": "http://localhost:3000",
