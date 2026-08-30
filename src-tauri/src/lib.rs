@@ -186,55 +186,80 @@ fn find_server_js(resource_dir: Option<&std::path::Path>) -> Option<(std::path::
 fn find_runtime_binary(resource_dir: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
     let mut candidates = Vec::new();
 
-    // 1. Bundled node.exe in resource directory
+    // 1. Bundled node binary in resource directory
     if let Some(res) = resource_dir {
-        let bundled1 = res.join("binaries").join("node.exe");
-        if bundled1.exists() {
-            candidates.push(bundled1);
-        }
-        let bundled2 = res.join("node.exe");
-        if bundled2.exists() {
-            candidates.push(bundled2);
+        for name in &["node.exe", "node", "bun.exe", "bun"] {
+            let b1 = res.join("binaries").join(name);
+            if b1.exists() {
+                candidates.push(b1);
+            }
+            let b2 = res.join(name);
+            if b2.exists() {
+                candidates.push(b2);
+            }
         }
     }
 
-    // 2. Bundled node.exe relative to current_exe
+    // 2. Bundled node relative to current_exe
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            let p1 = parent.join("binaries").join("node.exe");
-            if p1.exists() {
-                candidates.push(p1);
-            }
-            let p2 = parent.join("node.exe");
-            if p2.exists() {
-                candidates.push(p2);
-            }
-            let p3 = parent.join("resources").join("binaries").join("node.exe");
-            if p3.exists() {
-                candidates.push(p3);
-            }
-            let p4 = parent.join("resources").join("node.exe");
-            if p4.exists() {
-                candidates.push(p4);
+            for name in &["node.exe", "node", "bun.exe", "bun"] {
+                let p1 = parent.join("binaries").join(name);
+                if p1.exists() {
+                    candidates.push(p1);
+                }
+                let p2 = parent.join(name);
+                if p2.exists() {
+                    candidates.push(p2);
+                }
+                let p3 = parent.join("resources").join("binaries").join(name);
+                if p3.exists() {
+                    candidates.push(p3);
+                }
+                let p4 = parent.join("resources").join(name);
+                if p4.exists() {
+                    candidates.push(p4);
+                }
             }
         }
     }
 
-    // 3. System installations
-    let pf_node = std::path::PathBuf::from(r"C:\Program Files\nodejs\node.exe");
-    if pf_node.exists() {
-        candidates.push(pf_node);
-    }
-    if let Ok(userprofile) = std::env::var("USERPROFILE") {
-        let bun_path = std::path::PathBuf::from(userprofile).join(r".bun\bin\bun.exe");
-        if bun_path.exists() {
-            candidates.push(bun_path);
+    // 3. Known system installation paths
+    #[cfg(windows)]
+    {
+        let pf_node = std::path::PathBuf::from(r"C:\Program Files\nodejs\node.exe");
+        if pf_node.exists() {
+            candidates.push(pf_node);
+        }
+        if let Ok(userprofile) = std::env::var("USERPROFILE") {
+            let bun_path = std::path::PathBuf::from(userprofile).join(r".bun\bin\bun.exe");
+            if bun_path.exists() {
+                candidates.push(bun_path);
+            }
         }
     }
+
+    #[cfg(not(windows))]
+    {
+        for p in &[
+            "/usr/local/bin/node",
+            "/usr/bin/node",
+            "/usr/local/bin/bun",
+            "/usr/bin/bun",
+            "/home/linuxbrew/.linuxbrew/bin/node",
+        ] {
+            let pb = std::path::PathBuf::from(p);
+            if pb.exists() {
+                candidates.push(pb);
+            }
+        }
+    }
+
     candidates.push(std::path::PathBuf::from("node"));
     candidates.push(std::path::PathBuf::from("bun"));
     candidates
 }
+
 
 static BACKEND_CHILD: std::sync::OnceLock<std::sync::Mutex<Option<std::process::Child>>> = std::sync::OnceLock::new();
 

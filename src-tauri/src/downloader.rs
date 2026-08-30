@@ -5,28 +5,17 @@ use tauri::{AppHandle, Emitter};
 use url::Url;
 
 pub fn get_downloads_dir() -> PathBuf {
-    if let Ok(profile) = std::env::var("USERPROFILE") {
-        let dir = PathBuf::from(&profile).join("Downloads").join("Anime Realms");
-        let _ = fs::create_dir_all(&dir);
-
-        // Migrate any legacy AnimeRealms files to Anime Realms
-        let legacy = PathBuf::from(&profile).join("Downloads").join("AnimeRealms");
-
-        if legacy.exists() && legacy.is_dir() {
-            if let Ok(entries) = fs::read_dir(&legacy) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if let Some(name) = p.file_name() {
-                        let target = dir.join(name);
-                        let _ = fs::rename(&p, &target);
-                    }
-                }
-            }
-        }
-        return dir;
-    }
-    PathBuf::from(".")
+    let base = if let Ok(profile) = std::env::var("USERPROFILE") {
+        PathBuf::from(&profile).join("Downloads").join("Anime Realms")
+    } else if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(&home).join("Downloads").join("Anime Realms")
+    } else {
+        std::env::temp_dir().join("AnimeRealms_Downloads")
+    };
+    let _ = fs::create_dir_all(&base);
+    base
 }
+
 
 pub fn open_downloads() -> Result<(), String> {
     let dir = get_downloads_dir();
