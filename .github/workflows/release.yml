@@ -55,7 +55,19 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libfuse2 \
-            patchelf
+            libfuse-dev \
+            patchelf \
+            fuse \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-plugins-ugly \
+            gstreamer1.0-libav \
+            gstreamer1.0-tools \
+            gstreamer1.0-gl \
+            gstreamer1.0-gtk3
 
       - name: Install project dependencies
         run: bun install
@@ -77,6 +89,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPIMAGE_EXTRACT_AND_RUN: 1
           NO_STRIP: 'true'
+          FUSE_INSTALL_DIR: /usr
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Anime Realms Desktop ${{ github.ref_name }}'
@@ -84,4 +97,5 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
 
