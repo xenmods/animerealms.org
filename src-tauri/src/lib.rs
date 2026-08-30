@@ -134,38 +134,50 @@ fn find_server_js(resource_dir: Option<&std::path::Path>) -> Option<(std::path::
 
     if let Some(res) = resource_dir {
         search_dirs.push(res.to_path_buf());
-        search_dirs.push(res.join(".next").join("standalone"));
         search_dirs.push(res.join("standalone"));
+        search_dirs.push(res.join(".next").join("standalone"));
     }
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             search_dirs.push(parent.to_path_buf());
+            search_dirs.push(parent.join("standalone"));
             search_dirs.push(parent.join("resources"));
+            search_dirs.push(parent.join("resources").join("standalone"));
             search_dirs.push(parent.join("resources").join(".next").join("standalone"));
         }
         let mut curr = exe.parent();
         while let Some(dir) = curr {
             search_dirs.push(dir.to_path_buf());
+            search_dirs.push(dir.join("standalone"));
+            search_dirs.push(dir.join(".next").join("standalone"));
             curr = dir.parent();
         }
     }
 
     if let Ok(cwd) = std::env::current_dir() {
-        search_dirs.push(cwd);
+        search_dirs.push(cwd.clone());
+        search_dirs.push(cwd.join("standalone"));
+        search_dirs.push(cwd.join(".next").join("standalone"));
     }
 
     for base in search_dirs {
-        let candidate_standalone = base.join(".next").join("standalone").join("server.js");
-        if candidate_standalone.exists() {
-            let working_dir = candidate_standalone.parent().unwrap_or(&base).to_path_buf();
-            return Some((candidate_standalone, working_dir));
-        }
-
         let candidate_root = base.join("server.js");
         if candidate_root.exists() {
             let working_dir = base.clone();
             return Some((candidate_root, working_dir));
+        }
+
+        let candidate_standalone = base.join("standalone").join("server.js");
+        if candidate_standalone.exists() {
+            let working_dir = base.join("standalone");
+            return Some((candidate_standalone, working_dir));
+        }
+
+        let candidate_next_standalone = base.join(".next").join("standalone").join("server.js");
+        if candidate_next_standalone.exists() {
+            let working_dir = base.join(".next").join("standalone");
+            return Some((candidate_next_standalone, working_dir));
         }
     }
     None
@@ -242,6 +254,18 @@ fn ensure_backend_server(resource_dir: Option<&std::path::Path>) {
                     .env("AUTH_TRUST_HOST", "true")
                     .env("NEXTAUTH_URL", "http://localhost:3000");
 
+                if let Ok(appdata) = std::env::var("APPDATA") {
+                    let log_dir = std::path::PathBuf::from(appdata).join("AnimeRealms");
+                    let _ = std::fs::create_dir_all(&log_dir);
+                    let log_file_path = log_dir.join("server.log");
+                    if let Ok(f) = std::fs::File::create(log_file_path) {
+                        if let Ok(f_err) = f.try_clone() {
+                            cmd.stdout(std::process::Stdio::from(f));
+                            cmd.stderr(std::process::Stdio::from(f_err));
+                        }
+                    }
+                }
+
                 #[cfg(windows)]
                 {
                     use std::os::windows::process::CommandExt;
@@ -259,6 +283,7 @@ fn ensure_backend_server(resource_dir: Option<&std::path::Path>) {
         }
     }
 }
+
 
 
 
