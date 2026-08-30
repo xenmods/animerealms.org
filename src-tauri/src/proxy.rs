@@ -36,12 +36,15 @@ pub async fn start_proxy_server(port: u16) {
         .expose_headers(Any);
 
     let app = Router::new()
+        .route("/", get(handle_splash))
+        .route("/splash", get(handle_splash))
         .route("/fetch", get(handle_fetch))
         .route("/local_file", get(handle_local_file))
         .route("/local_playlist.m3u8", get(handle_local_playlist))
         .route("/health", get(health_check))
         .layer(cors)
         .with_state(state);
+
 
 
 
@@ -67,6 +70,160 @@ pub async fn start_proxy_server(port: u16) {
 async fn health_check() -> &'static str {
     "AnimeRealms Rust Proxy OK"
 }
+
+async fn handle_splash() -> Response {
+    let html = r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anime Realms</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background-color: #09090b;
+      color: #fafafa;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      animation: fadeIn 0.6s ease-out;
+    }
+    .logo-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .pulse-glow {
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.4) 0%, rgba(59, 130, 246, 0) 70%);
+      animation: pulse 2.5s infinite ease-in-out;
+    }
+    .logo {
+      width: 72px;
+      height: 72px;
+      z-index: 2;
+      filter: drop-shadow(0 0 16px rgba(168, 85, 247, 0.5));
+    }
+    .title-group {
+      text-align: center;
+    }
+    .title {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #a855f7 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #71717a;
+      margin-top: 6px;
+      transition: color 0.3s ease;
+    }
+    .progress-bar-container {
+      width: 220px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 40%;
+      background: linear-gradient(90deg, #3b82f6, #a855f7, #ec4899);
+      border-radius: 999px;
+      animation: indeterminate 1.6s infinite ease-in-out;
+    }
+    @keyframes indeterminate {
+      0% { transform: translateX(-100%); }
+      50% { transform: translateX(100%); }
+      100% { transform: translateX(300%); }
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.3); opacity: 0.9; }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo-wrapper">
+      <div class="pulse-glow"></div>
+      <svg class="logo" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M2 17L12 22L22 17" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M2 12L12 17L22 12" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+
+    <div class="title-group">
+      <h1 class="title">Anime Realms</h1>
+      <p id="status-text" class="subtitle">Starting local server...</p>
+    </div>
+
+    <div class="progress-bar-container">
+      <div class="progress-bar"></div>
+    </div>
+  </div>
+
+  <script>
+    let tries = 0;
+    const statusText = document.getElementById("status-text");
+
+    async function checkServer() {
+      tries++;
+      try {
+        const res = await fetch("http://localhost:3000/en", { method: "HEAD", mode: "no-cors" });
+        statusText.innerText = "Launching...";
+        statusText.style.color = "#a855f7";
+        window.location.replace("http://localhost:3000/en");
+        return;
+      } catch (err) {
+        if (tries > 25) {
+          statusText.innerText = "Initializing Next.js engine...";
+        }
+      }
+      setTimeout(checkServer, 250);
+    }
+
+    setTimeout(checkServer, 100);
+  </script>
+</body>
+</html>"##;
+
+    let mut res = Response::new(Body::from(html));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    res.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    );
+    res
+}
+
+
 
 async fn handle_fetch(
     Query(params): Query<std::collections::HashMap<String, String>>,

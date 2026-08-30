@@ -129,12 +129,21 @@ fn open_providers_folder() -> Result<(), String> {
 
 
 
-fn find_server_js() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+fn find_server_js(resource_dir: Option<&std::path::Path>) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     let mut search_dirs = Vec::new();
-    if let Ok(cwd) = std::env::current_dir() {
-        search_dirs.push(cwd);
+
+    if let Some(res) = resource_dir {
+        search_dirs.push(res.to_path_buf());
+        search_dirs.push(res.join(".next").join("standalone"));
+        search_dirs.push(res.join("standalone"));
     }
+
     if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            search_dirs.push(parent.to_path_buf());
+            search_dirs.push(parent.join("resources"));
+            search_dirs.push(parent.join("resources").join(".next").join("standalone"));
+        }
         let mut curr = exe.parent();
         while let Some(dir) = curr {
             search_dirs.push(dir.to_path_buf());
@@ -142,22 +151,64 @@ fn find_server_js() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
         }
     }
 
+    if let Ok(cwd) = std::env::current_dir() {
+        search_dirs.push(cwd);
+    }
+
     for base in search_dirs {
-        let candidate = base.join(".next").join("standalone").join("server.js");
-        if candidate.exists() {
-            return Some((candidate, base));
+        let candidate_standalone = base.join(".next").join("standalone").join("server.js");
+        if candidate_standalone.exists() {
+            let working_dir = candidate_standalone.parent().unwrap_or(&base).to_path_buf();
+            return Some((candidate_standalone, working_dir));
         }
+
         let candidate_root = base.join("server.js");
         if candidate_root.exists() {
-            return Some((candidate_root, base));
+            let working_dir = base.clone();
+            return Some((candidate_root, working_dir));
         }
     }
     None
 }
 
-
-fn find_runtime_binary() -> Vec<std::path::PathBuf> {
+fn find_runtime_binary(resource_dir: Option<&std::path::Path>) -> Vec<std::path::PathBuf> {
     let mut candidates = Vec::new();
+
+    // 1. Bundled node.exe in resource directory
+    if let Some(res) = resource_dir {
+        let bundled1 = res.join("binaries").join("node.exe");
+        if bundled1.exists() {
+            candidates.push(bundled1);
+        }
+        let bundled2 = res.join("node.exe");
+        if bundled2.exists() {
+            candidates.push(bundled2);
+        }
+    }
+
+    // 2. Bundled node.exe relative to current_exe
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let p1 = parent.join("binaries").join("node.exe");
+            if p1.exists() {
+                candidates.push(p1);
+            }
+            let p2 = parent.join("node.exe");
+            if p2.exists() {
+                candidates.push(p2);
+            }
+            let p3 = parent.join("resources").join("binaries").join("node.exe");
+            if p3.exists() {
+                candidates.push(p3);
+            }
+            let p4 = parent.join("resources").join("node.exe");
+            if p4.exists() {
+                candidates.push(p4);
+            }
+        }
+    }
+
+    // 3. System installations
     let pf_node = std::path::PathBuf::from(r"C:\Program Files\nodejs\node.exe");
     if pf_node.exists() {
         candidates.push(pf_node);
@@ -173,16 +224,16 @@ fn find_runtime_binary() -> Vec<std::path::PathBuf> {
     candidates
 }
 
-fn ensure_backend_server() {
+fn ensure_backend_server(resource_dir: Option<&std::path::Path>) {
     let target = "127.0.0.1:3000";
     if TcpStream::connect_timeout(&target.parse().unwrap(), Duration::from_millis(300)).is_err() {
-        if let Some((server_script, working_dir)) = find_server_js() {
+        if let Some((server_script, working_dir)) = find_server_js(resource_dir) {
             log::info!(
                 "[Anime Realms] Launching silent standalone backend: {:?} in {:?}",
                 server_script,
                 working_dir
             );
-            for runtime in find_runtime_binary() {
+            for runtime in find_runtime_binary(resource_dir) {
                 let mut cmd = Command::new(&runtime);
                 cmd.arg(&server_script)
                     .current_dir(&working_dir)
@@ -190,7 +241,6 @@ fn ensure_backend_server() {
                     .env("HOSTNAME", "127.0.0.1")
                     .env("AUTH_TRUST_HOST", "true")
                     .env("NEXTAUTH_URL", "http://localhost:3000");
-
 
                 #[cfg(windows)]
                 {
@@ -205,10 +255,11 @@ fn ensure_backend_server() {
                 }
             }
         } else {
-            log::warn!("[Anime Realms] Standalone server.js not found in any ancestor directories");
+            log::warn!("[Anime Realms] Standalone server.js not found in any search directories");
         }
     }
 }
+
 
 
 
@@ -259,7 +310,9 @@ pub fn run() {
             });
 
             // Ensure Next.js standalone backend is spawned
-            ensure_backend_server();
+            let res_dir = app.path().resource_dir().ok();
+            ensure_backend_server(res_dir.as_deref());
+
 
             // Wait for 127.0.0.1:3000 to be ready and automatically navigate and focus
             let handle = app.handle().clone();

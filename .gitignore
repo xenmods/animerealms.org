@@ -44,4 +44,7 @@ next-env.d.ts
 # desktop binaries
 *.exe
 /src-tauri/target/
+/src-tauri/standalone/
+/src-tauri/binaries/
+
 

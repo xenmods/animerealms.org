@@ -1,4 +1,4 @@
-﻿import fs from 'node:fs';
+import fs from 'node:fs';
 import path from 'node:path';
 
 const rootDir = process.cwd();
@@ -17,4 +17,13 @@ if (fs.existsSync(standaloneDir)) {
     fs.cpSync(publicSrc, publicDest, { recursive: true });
     console.log('[Standalone] Copied public to .next/standalone/public');
   }
+
+  // Copy to src-tauri/standalone for clean Tauri bundle packaging
+  const tauriStandaloneDir = path.join(rootDir, 'src-tauri', 'standalone');
+  if (fs.existsSync(tauriStandaloneDir)) {
+    fs.rmSync(tauriStandaloneDir, { recursive: true, force: true });
+  }
+  fs.cpSync(standaloneDir, tauriStandaloneDir, { recursive: true });
+  console.log('[Standalone] Copied .next/standalone to src-tauri/standalone for bundle packaging');
 }
+
