@@ -20,12 +20,14 @@ jobs:
             args: '--bundles appimage,deb'
 
     runs-on: ${{ matrix.platform }}
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: 1
+      NO_STRIP: 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -54,20 +56,7 @@ jobs:
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            libfuse2 \
-            libfuse-dev \
-            patchelf \
-            fuse \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad \
-            gstreamer1.0-plugins-ugly \
-            gstreamer1.0-libav \
-            gstreamer1.0-tools \
-            gstreamer1.0-gl \
-            gstreamer1.0-gtk3
+            libfuse2
 
       - name: Install project dependencies
         run: bun install
@@ -87,9 +76,6 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPIMAGE_EXTRACT_AND_RUN: 1
-          NO_STRIP: 'true'
-          FUSE_INSTALL_DIR: /usr
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Anime Realms Desktop ${{ github.ref_name }}'
@@ -97,5 +83,6 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
 
 
