@@ -49,14 +49,19 @@ jobs:
       - name: Install project dependencies
         run: bun install
 
-      - name: Prepare Linux Node runtime binary
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: Prepare Node runtime binary
+        shell: bash
         run: |
           mkdir -p src-tauri/binaries
-          cp $(which node) src-tauri/binaries/node
-          chmod +x src-tauri/binaries/node
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            cp "$(which node)" src-tauri/binaries/node.exe
+          else
+            cp "$(which node)" src-tauri/binaries/node
+            chmod +x src-tauri/binaries/node
+          fi
 
       - name: Build Tauri Desktop Bundle
+
 
         uses: tauri-apps/tauri-action@v0
         env:

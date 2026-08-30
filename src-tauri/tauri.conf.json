@@ -46,8 +46,9 @@
     ],
     "resources": [
       "standalone/**/*",
-      "binaries/node.exe"
+      "binaries/*"
     ],
+
     "windows": {
       "nsis": {
         "installMode": "currentUser",

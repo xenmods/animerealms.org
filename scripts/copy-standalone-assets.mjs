@@ -25,5 +25,23 @@ if (fs.existsSync(standaloneDir)) {
   }
   fs.cpSync(standaloneDir, tauriStandaloneDir, { recursive: true });
   console.log('[Standalone] Copied .next/standalone to src-tauri/standalone for bundle packaging');
+
+  // Automatically place host platform Node.js binary into src-tauri/binaries
+  const binariesDir = path.join(rootDir, 'src-tauri', 'binaries');
+  fs.mkdirSync(binariesDir, { recursive: true });
+  const nodeBinaryName = process.platform === 'win32' ? 'node.exe' : 'node';
+  const targetNodePath = path.join(binariesDir, nodeBinaryName);
+  if (!fs.existsSync(targetNodePath) && fs.existsSync(process.execPath)) {
+    try {
+      fs.copyFileSync(process.execPath, targetNodePath);
+      if (process.platform !== 'win32') {
+        fs.chmodSync(targetNodePath, 0o755);
+      }
+      console.log(`[Standalone] Copied Node runtime (${process.execPath}) to ${targetNodePath}`);
+    } catch (err) {
+      console.warn('[Standalone] Could not copy process.execPath:', err);
+    }
+  }
 }
+
 
