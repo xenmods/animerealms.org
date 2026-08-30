@@ -1,7 +1,8 @@
 import FuzzySet from "fuzzyset";
 import clientPromise from "@/lib/db";
 
-const TMDB_API_KEY = process.env.TMDB_API_KEY || "";
+const TMDB_API_KEY = process.env.TMDB_API_KEY || "844dba0bfd8f3a4f3799f6130ef9e335";
+
 
 const ANILIST_API_URL = "https://graphql.anilist.co";
 const TMDB_API_URL = "https://api.themoviedb.org/3";

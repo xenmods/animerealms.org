@@ -4,11 +4,12 @@
   "version": "0.1.0",
   "identifier": "org.animerealms.desktop",
   "build": {
-    "frontendDist": "http://127.0.0.1:39282/splash",
+    "frontendDist": "http://localhost:3000",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "bun run dev",
     "beforeBuildCommand": "bun run build"
   },
+
 
   "app": {
     "windows": [
@@ -25,8 +26,6 @@
         "center": true,
         "visible": true
       }
-
-
     ],
     "security": {
       "csp": null
@@ -37,23 +36,27 @@
     "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
+      "icons/64x64.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
     ],
     "resources": [
       "standalone/**/*",
       "binaries/node.exe"
     ],
-
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico"
       }
     }
   }
 }
+
+
 
 

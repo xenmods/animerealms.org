@@ -1,7 +1,13 @@
-import { isTauri } from "@/lib/tauri";
+import {
+  isTauri,
+  getCustomProviderFiles,
+  saveCustomProviderFile,
+  deleteCustomProviderFile,
+} from "@/lib/tauri";
 
 import { StreamProvider, ScrapeResult, Stream } from "./types";
 import { providersConfig } from "./list";
+
 
 export interface CustomProviderMeta {
   id: string;
@@ -85,9 +91,7 @@ export async function getCustomProviders(): Promise<CustomProviderMeta[]> {
   // If running in Tauri desktop, sync with %APPDATA%/AnimeRealms/providers/
   if (isTauri()) {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const diskFiles: Array<{ filename: string; name: string; code: string; modified: number }> =
-        await invoke("get_custom_provider_files");
+      const diskFiles = await getCustomProviderFiles();
 
       for (const diskFile of diskFiles) {
         const id = `custom-${diskFile.name.toLowerCase().replace(/[^a-z0-9_-]/g, "")}`;
@@ -138,11 +142,10 @@ export async function saveCustomProvider(meta: Omit<CustomProviderMeta, "isCusto
   // Sync to disk if desktop
   if (isTauri()) {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("save_custom_provider_file", {
-        filename: `${fullMeta.name.toLowerCase().replace(/[^a-z0-9_-]/g, "")}.js`,
-        code: fullMeta.code,
-      });
+      await saveCustomProviderFile(
+        `${fullMeta.name.toLowerCase().replace(/[^a-z0-9_-]/g, "")}.js`,
+        fullMeta.code
+      );
     } catch (e) {
       console.warn("[CustomProviders] Desktop disk write skipped:", e);
     }
@@ -173,15 +176,15 @@ export async function deleteCustomProvider(id: string): Promise<void> {
 
   if (isTauri() && target) {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("delete_custom_provider_file", {
-        filename: `${target.name.toLowerCase().replace(/[^a-z0-9_-]/g, "")}.js`,
-      });
+      await deleteCustomProviderFile(
+        `${target.name.toLowerCase().replace(/[^a-z0-9_-]/g, "")}.js`
+      );
     } catch (e) {
       console.warn("[CustomProviders] Desktop disk delete skipped:", e);
     }
   }
 }
+
 
 /**
  * Installs a custom provider from a raw URL (e.g. GitHub raw / Gist)

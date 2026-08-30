@@ -1,4 +1,4 @@
-﻿use std::fs;
+use std::fs;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
@@ -85,5 +85,22 @@ pub fn delete_provider_file(filename: String) -> Result<(), String> {
 
 pub fn open_providers_folder() -> Result<(), String> {
     let dir = get_providers_dir();
-    open::that(dir).map_err(|e| e.to_string())
+    let _ = fs::create_dir_all(&dir);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = std::process::Command::new("explorer")
+            .arg(&dir)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+        return Ok(());
+    }
+
+    #[cfg(not(windows))]
+    {
+        open::that(dir).map_err(|e| e.to_string())
+    }
 }
+

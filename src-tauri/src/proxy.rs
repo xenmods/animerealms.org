@@ -3,7 +3,7 @@ use axum::{
     extract::Query,
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use futures_util::TryStreamExt;
@@ -13,6 +13,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use url::Url;
+
+use crate::downloader;
+use crate::providers;
 
 #[derive(Deserialize)]
 pub struct FetchParams {
@@ -24,6 +27,7 @@ pub struct FetchParams {
 pub struct ProxyState {
     pub client: Client,
 }
+
 
 pub async fn start_proxy_server(port: u16) {
     let client = Client::new();
@@ -38,16 +42,21 @@ pub async fn start_proxy_server(port: u16) {
     let app = Router::new()
         .route("/", get(handle_splash))
         .route("/splash", get(handle_splash))
+        .route("/traced-logo.png", get(handle_logo_png))
         .route("/fetch", get(handle_fetch))
         .route("/local_file", get(handle_local_file))
         .route("/local_playlist.m3u8", get(handle_local_playlist))
         .route("/health", get(health_check))
+        .route("/api/downloads/open", get(handle_downloads_open).post(handle_downloads_open))
+        .route("/api/downloads/list", get(handle_downloads_list))
+        .route("/api/downloads/play", get(handle_downloads_play).post(handle_downloads_play))
+        .route("/api/downloads/delete", get(handle_downloads_delete).post(handle_downloads_delete))
+        .route("/api/providers/open", get(handle_providers_open).post(handle_providers_open))
+        .route("/api/providers/list", get(handle_providers_list))
+        .route("/api/providers/save", post(handle_providers_save))
+        .route("/api/providers/delete", post(handle_providers_delete))
         .layer(cors)
         .with_state(state);
-
-
-
-
 
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -71,7 +80,139 @@ async fn health_check() -> &'static str {
     "AnimeRealms Rust Proxy OK"
 }
 
+async fn handle_logo_png() -> Response {
+    const LOGO_BYTES: &[u8] = include_bytes!("../../public/traced-logo.png");
+    let mut res = Response::new(Body::from(LOGO_BYTES));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("image/png"),
+    );
+    res.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    res
+}
+
+async fn handle_downloads_open() -> Response {
+    let _ = downloader::open_downloads();
+    let json = serde_json::json!({ "success": true });
+    let mut res = Response::new(Body::from(json.to_string()));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    res
+}
+
+async fn handle_downloads_list() -> Response {
+    let files = downloader::list_downloaded_files().unwrap_or_default();
+    let json = serde_json::to_string(&files).unwrap_or_else(|_| "[]".to_string());
+    let mut res = Response::new(Body::from(json));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    res
+}
+
+#[derive(serde::Deserialize)]
+pub struct PathQuery {
+    pub file_path: Option<String>,
+    pub path: Option<String>,
+}
+
+async fn handle_downloads_play(
+    axum::extract::Query(q): axum::extract::Query<PathQuery>,
+) -> Response {
+    if let Some(path) = q.file_path.or(q.path) {
+        let _ = downloader::play_file(&path);
+    }
+    let json = serde_json::json!({ "success": true });
+    let mut res = Response::new(Body::from(json.to_string()));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    res
+}
+
+async fn handle_downloads_delete(
+    axum::extract::Query(q): axum::extract::Query<PathQuery>,
+) -> Response {
+    if let Some(path) = q.file_path.or(q.path) {
+        let _ = downloader::delete_file(&path);
+    }
+    let json = serde_json::json!({ "success": true });
+    let mut res = Response::new(Body::from(json.to_string()));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    res
+}
+
+async fn handle_providers_open() -> Response {
+    let _ = providers::open_providers_folder();
+    let json = serde_json::json!({ "success": true });
+    let mut res = Response::new(Body::from(json.to_string()));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    res
+}
+
+async fn handle_providers_list() -> Response {
+    let list = providers::list_provider_files().unwrap_or_default();
+    let json = serde_json::to_string(&list).unwrap_or_else(|_| "[]".to_string());
+    let mut res = Response::new(Body::from(json));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    res
+}
+
+#[derive(serde::Deserialize)]
+pub struct ProviderSavePayload {
+    pub filename: String,
+    pub code: String,
+}
+
+async fn handle_providers_save(
+    axum::extract::Json(payload): axum::extract::Json<ProviderSavePayload>,
+) -> Response {
+    let _ = providers::save_provider_file(payload.filename, payload.code);
+    let json = serde_json::json!({ "success": true });
+    let mut res = Response::new(Body::from(json.to_string()));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    res
+}
+
+#[derive(serde::Deserialize)]
+pub struct ProviderDeletePayload {
+    pub filename: String,
+}
+
+async fn handle_providers_delete(
+    axum::extract::Json(payload): axum::extract::Json<ProviderDeletePayload>,
+) -> Response {
+    let _ = providers::delete_provider_file(payload.filename);
+    let json = serde_json::json!({ "success": true });
+    let mut res = Response::new(Body::from(json.to_string()));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    res
+}
+
 async fn handle_splash() -> Response {
+
     let html = r##"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -95,7 +236,7 @@ async fn handle_splash() -> Response {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 24px;
+      gap: 28px;
       animation: fadeIn 0.6s ease-out;
     }
     .logo-wrapper {
@@ -106,49 +247,44 @@ async fn handle_splash() -> Response {
     }
     .pulse-glow {
       position: absolute;
-      width: 120px;
-      height: 120px;
+      width: 180px;
+      height: 180px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(168, 85, 247, 0.4) 0%, rgba(59, 130, 246, 0) 70%);
+      background: radial-gradient(circle, rgba(244, 63, 94, 0.35) 0%, rgba(244, 63, 94, 0) 70%);
       animation: pulse 2.5s infinite ease-in-out;
     }
     .logo {
-      width: 72px;
-      height: 72px;
+      width: 140px;
+      height: auto;
       z-index: 2;
-      filter: drop-shadow(0 0 16px rgba(168, 85, 247, 0.5));
+      filter: drop-shadow(0 0 20px rgba(244, 63, 94, 0.45));
     }
-    .title-group {
-      text-align: center;
-    }
-    .title {
-      font-size: 26px;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #a855f7 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+    .status-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
     }
     .subtitle {
       font-size: 13px;
       color: #71717a;
-      margin-top: 6px;
       transition: color 0.3s ease;
+      letter-spacing: -0.2px;
     }
     .progress-bar-container {
-      width: 220px;
+      width: 200px;
       height: 4px;
       background: rgba(255, 255, 255, 0.08);
       border-radius: 999px;
       overflow: hidden;
-      margin-top: 8px;
     }
     .progress-bar {
       height: 100%;
       width: 40%;
-      background: linear-gradient(90deg, #3b82f6, #a855f7, #ec4899);
+      background: linear-gradient(90deg, #ff4b68, #e11d48, #be123c);
+      box-shadow: 0 0 10px rgba(244, 63, 94, 0.6);
       border-radius: 999px;
-      animation: indeterminate 1.6s infinite ease-in-out;
+      animation: indeterminate 1.5s infinite ease-in-out;
     }
     @keyframes indeterminate {
       0% { transform: translateX(-100%); }
@@ -156,11 +292,11 @@ async fn handle_splash() -> Response {
       100% { transform: translateX(300%); }
     }
     @keyframes pulse {
-      0%, 100% { transform: scale(1); opacity: 0.5; }
-      50% { transform: scale(1.3); opacity: 0.9; }
+      0%, 100% { transform: scale(1); opacity: 0.6; }
+      50% { transform: scale(1.35); opacity: 1; }
     }
     @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
+      from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
     }
   </style>
@@ -169,20 +305,14 @@ async fn handle_splash() -> Response {
   <div class="container">
     <div class="logo-wrapper">
       <div class="pulse-glow"></div>
-      <svg class="logo" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M2 17L12 22L22 17" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M2 12L12 17L22 12" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+      <img src="/traced-logo.png" class="logo" alt="Anime Realms" />
     </div>
 
-    <div class="title-group">
-      <h1 class="title">Anime Realms</h1>
+    <div class="status-wrapper">
+      <div class="progress-bar-container">
+        <div class="progress-bar"></div>
+      </div>
       <p id="status-text" class="subtitle">Starting local server...</p>
-    </div>
-
-    <div class="progress-bar-container">
-      <div class="progress-bar"></div>
     </div>
   </div>
 
@@ -195,7 +325,7 @@ async fn handle_splash() -> Response {
       try {
         const res = await fetch("http://localhost:3000/en", { method: "HEAD", mode: "no-cors" });
         statusText.innerText = "Launching...";
-        statusText.style.color = "#a855f7";
+        statusText.style.color = "#f43f5e";
         window.location.replace("http://localhost:3000/en");
         return;
       } catch (err) {
@@ -203,10 +333,10 @@ async fn handle_splash() -> Response {
           statusText.innerText = "Initializing Next.js engine...";
         }
       }
-      setTimeout(checkServer, 250);
+      setTimeout(checkServer, 200);
     }
 
-    setTimeout(checkServer, 100);
+    setTimeout(checkServer, 80);
   </script>
 </body>
 </html>"##;

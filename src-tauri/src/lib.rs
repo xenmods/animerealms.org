@@ -236,6 +236,33 @@ fn find_runtime_binary(resource_dir: Option<&std::path::Path>) -> Vec<std::path:
     candidates
 }
 
+static BACKEND_CHILD: std::sync::OnceLock<std::sync::Mutex<Option<std::process::Child>>> = std::sync::OnceLock::new();
+
+fn get_backend_child() -> &'static std::sync::Mutex<Option<std::process::Child>> {
+    BACKEND_CHILD.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+pub fn kill_backend_server() {
+    if let Ok(mut lock) = get_backend_child().lock() {
+        if let Some(mut child) = lock.take() {
+            let pid = child.id();
+            log::info!("[Anime Realms] Terminating backend server child process (PID: {})...", pid);
+            let _ = child.kill();
+            let _ = child.wait();
+
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
+            }
+        }
+    }
+}
+
 fn ensure_backend_server(resource_dir: Option<&std::path::Path>) {
     let target = "127.0.0.1:3000";
     if TcpStream::connect_timeout(&target.parse().unwrap(), Duration::from_millis(300)).is_err() {
@@ -247,7 +274,12 @@ fn ensure_backend_server(resource_dir: Option<&std::path::Path>) {
             );
             for runtime in find_runtime_binary(resource_dir) {
                 let mut cmd = Command::new(&runtime);
-                cmd.arg(&server_script)
+                let script_arg = server_script
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("server.js");
+
+                cmd.arg(script_arg)
                     .current_dir(&working_dir)
                     .env("PORT", "3000")
                     .env("HOSTNAME", "127.0.0.1")
@@ -273,8 +305,11 @@ fn ensure_backend_server(resource_dir: Option<&std::path::Path>) {
                     cmd.creation_flags(CREATE_NO_WINDOW);
                 }
 
-                if let Ok(_) = cmd.spawn() {
-                    log::info!("[Anime Realms] Successfully spawned backend server with {:?}", runtime);
+                if let Ok(child) = cmd.spawn() {
+                    log::info!("[Anime Realms] Successfully spawned backend server with {:?} (PID: {})", runtime, child.id());
+                    if let Ok(mut lock) = get_backend_child().lock() {
+                        *lock = Some(child);
+                    }
                     break;
                 }
             }
@@ -284,22 +319,24 @@ fn ensure_backend_server(resource_dir: Option<&std::path::Path>) {
     }
 }
 
-
-
-
-
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let discord = init_discord();
     let app_state = AppState { discord };
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(app_state)
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed | tauri::WindowEvent::CloseRequested { .. } = event {
+                if window.label() == "main" {
+                    kill_backend_server();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_proxy_url,
             is_desktop,
@@ -316,11 +353,16 @@ pub fn run() {
             delete_custom_provider_file,
             open_providers_folder
         ])
-
-
-
-
         .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                const ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
+                if let Ok(icon) = tauri::image::Image::from_bytes(ICON_PNG) {
+                    let _ = window.set_icon(icon);
+                }
+                let _ = window.navigate(tauri::Url::parse("http://127.0.0.1:39282/splash").unwrap());
+            }
+
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -338,7 +380,6 @@ pub fn run() {
             let res_dir = app.path().resource_dir().ok();
             ensure_backend_server(res_dir.as_deref());
 
-
             // Wait for 127.0.0.1:3000 to be ready and automatically navigate and focus
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -349,11 +390,14 @@ pub fn run() {
                         log::info!("[Anime Realms] Backend server is READY! Navigating webview...");
                         if let Some(window) = handle.get_webview_window("main") {
                             let _ = window.navigate(tauri::Url::parse("http://localhost:3000/en").unwrap());
+                            const ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
+                            if let Ok(icon) = tauri::image::Image::from_bytes(ICON_PNG) {
+                                let _ = window.set_icon(icon);
+                            }
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
                         break;
-
                     }
                     if i % 10 == 0 {
                         log::info!("[Anime Realms] Waiting for backend server on 127.0.0.1:3000...");
@@ -361,12 +405,20 @@ pub fn run() {
                 }
             });
 
+
             log::info!("[Anime Realms] Desktop engine & local proxy initialized successfully");
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+            kill_backend_server();
+        }
+    });
 }
+
 
 
 

@@ -30,8 +30,25 @@ pub fn get_downloads_dir() -> PathBuf {
 
 pub fn open_downloads() -> Result<(), String> {
     let dir = get_downloads_dir();
-    open::that(dir).map_err(|e| e.to_string())
+    let _ = fs::create_dir_all(&dir);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = std::process::Command::new("explorer")
+            .arg(&dir)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+        return Ok(());
+    }
+
+    #[cfg(not(windows))]
+    {
+        open::that(dir).map_err(|e| e.to_string())
+    }
 }
+
 
 pub fn play_file(file_path: &str) -> Result<(), String> {
     open::that(file_path).map_err(|e| e.to_string())
@@ -168,8 +185,24 @@ pub async fn download_hls(
 ) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
+
+    // If passed a local proxy URL, extract raw target URL
+    let target_url = if stream_url.starts_with("http://127.0.0.1:39282/fetch?url=") {
+        if let Ok(parsed) = Url::parse(&stream_url) {
+            parsed
+                .query_pairs()
+                .find(|(k, _)| k == "url")
+                .map(|(_, v)| v.to_string())
+                .unwrap_or(stream_url.clone())
+        } else {
+            stream_url.clone()
+        }
+    } else {
+        stream_url.clone()
+    };
 
     let downloads_dir = get_downloads_dir();
     let safe_title: String = anime_title
@@ -195,7 +228,6 @@ pub async fn download_hls(
     let output_path = anime_folder.join(&file_name);
     let temp_path = anime_folder.join(format!("{}.downloading", file_name));
 
-
     let _ = app.emit(
         "download-progress",
         DownloadProgress {
@@ -208,8 +240,8 @@ pub async fn download_hls(
         },
     );
 
-    if stream_url.ends_with(".mp4") || (!stream_url.contains(".m3u8") && !stream_url.contains("m3u8")) {
-        let mut req = client.get(&stream_url);
+    if target_url.ends_with(".mp4") || (!target_url.contains(".m3u8") && !target_url.contains("m3u8")) {
+        let mut req = client.get(&target_url);
         if let Some(ref r) = referer {
             req = req.header("Referer", r);
         }
@@ -232,24 +264,30 @@ pub async fn download_hls(
         return Ok(output_path.to_string_lossy().to_string());
     }
 
-    let mut req = client.get(&stream_url);
+    let mut req = client.get(&target_url);
     if let Some(ref r) = referer {
         req = req.header("Referer", r);
     }
     let res = req.send().await.map_err(|e| e.to_string())?;
-    let base_url = Url::parse(&stream_url).map_err(|e| e.to_string())?;
+    let base_url = Url::parse(&target_url).map_err(|e| e.to_string())?;
     let text = res.text().await.map_err(|e| e.to_string())?;
 
-    let mut media_playlist_url = stream_url.clone();
+    let mut media_playlist_url = target_url.clone();
     if text.contains("#EXT-X-STREAM-INF") {
         let lines: Vec<&str> = text.lines().collect();
         for i in 0..lines.len() {
-            if lines[i].starts_with("#EXT-X-STREAM-INF") && i + 1 < lines.len() {
-                let target = lines[i + 1].trim();
-                if let Ok(resolved) = base_url.join(target) {
-                    media_playlist_url = resolved.to_string();
-                    break;
+            let line = lines[i].trim();
+            if line.starts_with("#EXT-X-STREAM-INF") {
+                for j in (i + 1)..lines.len() {
+                    let next_line = lines[j].trim();
+                    if !next_line.is_empty() && !next_line.starts_with('#') {
+                        if let Ok(resolved) = base_url.join(next_line) {
+                            media_playlist_url = resolved.to_string();
+                        }
+                        break;
+                    }
                 }
+                break;
             }
         }
     }
@@ -285,12 +323,31 @@ pub async fn download_hls(
         .map_err(|e| e.to_string())?;
 
     for (idx, seg_url) in segments.into_iter().enumerate() {
-        let mut sreq = client.get(&seg_url);
-        if let Some(ref r) = referer {
-            sreq = sreq.header("Referer", r);
+        let mut bytes_opt = None;
+        for _attempt in 0..3 {
+            let mut sreq = client.get(&seg_url);
+            if let Some(ref r) = referer {
+                sreq = sreq.header("Referer", r);
+            }
+            if let Ok(sres) = sreq.send().await {
+                if sres.status().is_success() {
+                    if let Ok(b) = sres.bytes().await {
+                        bytes_opt = Some(b);
+                        break;
+                    }
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         }
-        let sres = sreq.send().await.map_err(|e| e.to_string())?;
-        let bytes = sres.bytes().await.map_err(|e| e.to_string())?;
+
+        let bytes = match bytes_opt {
+            Some(b) => b,
+            None => {
+                log::warn!("[Downloader] Segment {} failed after 3 attempts, skipping...", idx + 1);
+                continue;
+            }
+        };
+
         file.write_all(&bytes).map_err(|e| e.to_string())?;
 
         let percent = (((idx + 1) as f32 / total as f32) * 100.0) as u8;
@@ -344,7 +401,6 @@ pub async fn download_hls(
         }
         fs::rename(&temp_path, &output_path).map_err(|e| e.to_string())?;
     }
-
 
     let _ = app.emit(
         "download-progress",

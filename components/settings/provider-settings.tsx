@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@iconify/react";
 import { toast } from "sonner";
-import { isTauri } from "@/lib/tauri";
+import { isTauri, openProvidersFolder } from "@/lib/tauri";
+
 
 import { providerNames, providersConfig } from "@/lib/providers/list";
 import {
@@ -151,15 +152,13 @@ export function ProviderSettings() {
   };
 
   const handleOpenProvidersFolder = async () => {
-    if (isTauri()) {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("open_providers_folder");
-      } catch (err) {
-        toast.error("Failed to open providers folder");
-      }
+    try {
+      await openProvidersFolder();
+    } catch (err) {
+      toast.error("Failed to open providers folder");
     }
   };
+
 
   const openTesterForProvider = (providerKey: string) => {
     setTestProviderKey(providerKey);
