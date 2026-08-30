@@ -1,4 +1,4 @@
-﻿name: Release Desktop App
+name: Release Desktop App
 
 on:
   push:
@@ -46,7 +46,15 @@ jobs:
       - name: Install project dependencies
         run: bun install
 
+      - name: Prepare Linux Node runtime binary
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          mkdir -p src-tauri/binaries
+          cp $(which node) src-tauri/binaries/node
+          chmod +x src-tauri/binaries/node
+
       - name: Build Tauri Desktop Bundle
+
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
